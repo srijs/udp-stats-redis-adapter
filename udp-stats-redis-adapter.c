@@ -22,6 +22,7 @@ int main (void) {
     printf("Error binding.\n");
     return 1;
   }
+  printf("Now listening on UDP port %i...\n", 6667);
 
   // Initialize redis connection.
   REDIS red = credis_connect(NULL, 6379, 2000);
