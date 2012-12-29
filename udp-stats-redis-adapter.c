@@ -91,7 +91,8 @@ int main (void) {
       red = socket(AF_INET, SOCK_STREAM, 0);
       struct sockaddr_in client = sock_hint(inet_addr("1.0.0.127"), 6379);
       if (connect(red, (struct sockaddr *)&client, sizeof(client)) == -1) {
-        return -1;
+        printf("Error connecting to redis. Skipping...");
+        continue;
       }
     }
 
