@@ -1,22 +1,27 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <memory.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/time.h>
 #include <math.h>
+#include <unistd.h>
 
 #include "credis.h"
 #include "js0n.h"
 
 struct msg_parts {
-  char  *bucket;
-  short  bucket_len;
-  char  *kind;
-  short  kind_len;
-  double timestamp;
-  double value;
+  char *bucket,
+       *kind,
+       *timestamp,
+       *value;
+  short bucket_len,
+        kind_len,
+        timestamp_len,
+        value_len;
 };
 
 static inline int init_udp_socket(long addr, short port) {
@@ -32,6 +37,19 @@ static inline int init_udp_socket(long addr, short port) {
   return -1;
 }
 
+static inline int init_redis_socket(long addr, short port) {
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  struct sockaddr_in client;
+  memset(&client, 0, sizeof(client));
+  client.sin_family      = AF_INET;
+  client.sin_addr.s_addr = htonl(addr);
+  client.sin_port        = htons(port);
+  if (connect(fd, (struct sockaddr *)&client, sizeof(client)) == 0) {
+    return fd;
+  }
+  return -1;
+}
+
 static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
   unsigned short j[16] = {0};
   int i;
@@ -39,10 +57,10 @@ static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
     for (i = 0; i < 16; i += 4) {
       msg[j[i + 2] + j[i + 3]] = '\0';
       switch(msg[j[i]]) {
-        case 'b': parts->bucket_len = j[i + 3]; parts->bucket = &msg[j[i + 2]]; break;
-        case 'k': parts->kind_len   = j[i + 3]; parts->kind   = &msg[j[i + 2]]; break;
-        case 't': parts->timestamp  = strtod(&msg[j[i + 2]], NULL); break;
-        case 'v': parts->value      = strtod(&msg[j[i + 2]], NULL); break;
+        case 'b': parts->bucket_len    = j[i + 3]; parts->bucket    = &msg[j[i + 2]]; break;
+        case 'k': parts->kind_len      = j[i + 3]; parts->kind      = &msg[j[i + 2]]; break;
+        case 't': parts->timestamp_len = j[i + 3]; parts->timestamp = &msg[j[i + 2]]; break;
+        case 'v': parts->value_len     = j[i + 3]; parts->value     = &msg[j[i + 2]]; break;
       }
     }
     return 0;
@@ -52,15 +70,19 @@ static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
 
 int main (void) {
 
+  signal(SIGPIPE, SIG_IGN);
+
+  // Initiate UDP server socket.
   int sock = init_udp_socket(INADDR_ANY, 6667);
-  if (sock < 0) {
+  if (sock == -1) {
     printf("Error binding socket.\n");
     return 1;
   }
+
   printf("Now listening on UDP port %i...\n", 6667);
 
-  // Declate Redis connection.
-  REDIS red = NULL;
+  // Initiate redis client socket.
+  int red = -1;
 
   // Declare msg buffer and parts.
   char msg[1024];
@@ -82,22 +104,16 @@ int main (void) {
 
     // Check for redis connection and try to establish, if
     // not existent yet.
-    if (red == NULL) {
-      if ((red = credis_connect(NULL, 6379, 2000)) == NULL) {
-        printf("Error connecting to redis. Skipping...\n");
-        continue;
+    if (red == -1) {
+      red = init_redis_socket(inet_addr("1.0.0.127"), 6379);
+      if (red == -1) {
+        printf("Error connecting to redis.\n");
+        return 1;
       }
     }
 
-    // Check for redis ping.
-    if (credis_ping(red) < 0) {
-      printf("Bad ping from redis server. Skipping...\n");
-      red = NULL;
-      continue;
-    }
-
     // Check and parse JSON message into parts.
-    msg_parts = (struct msg_parts){NULL, 0, NULL, 0, NAN, NAN};
+    msg_parts = (struct msg_parts){NULL, NULL, NULL, NULL, 0, 0, 0, 0};
     if (parse_msg_parts(&msg_parts, msg, n) < 0) {
       printf("Malformed message. Skipping...\n");
       continue;
@@ -105,28 +121,40 @@ int main (void) {
 
     // If bucket is given, insert value into bucket.
     if (msg_parts.bucket) {
-      char key[6 + msg_parts.bucket_len + 6];
       // If the received timestamp is wrong, and there
       // was an error calling gettimeofday(), we exit.
       // Otherwise we use the time returned by gettimeofday.
-      if (isnan(msg_parts.timestamp)) {
+      if (msg_parts.timestamp == NULL) {
         if (t == -1) {
           printf("Error retrieving timestamp. Skipping...\n");
           continue;
         }
-        msg_parts.timestamp = (double)tv.tv_sec * 1000 + (double)tv.tv_usec;;
+        msg_parts.timestamp = &msg[n + 1];
+        msg_parts.timestamp_len = snprintf(msg_parts.timestamp, 1024 - n - 1, "%.f", (double)tv.tv_sec * 1000 + (double)tv.tv_usec);
       }
-      // Build the key string.
-      memcpy  (&key[0], "stats:", 6);
-      memmove (&key[6], msg_parts.bucket, msg_parts.bucket_len);
+      char send[1024];
+      n = snprintf(send, 1024, "ZADD stats:%s %s %i\r\n%s:%s\r\n",
+                               msg_parts.bucket, msg_parts.timestamp,
+                               msg_parts.timestamp_len + 1 + msg_parts.value_len,
+                               msg_parts.timestamp, msg_parts.value);
+      n = write(red, send, n);
+      if (n == -1) {
+        printf("Error writing to redis. Skipping...\n");
+        red = -1;
+        continue;
+      }
       // If kind is given, change kind of bucket.
       if (msg_parts.kind) {
-        memcpy(&key[6 + msg_parts.bucket_len], ":kind", 6);
-        credis_set(red, key, msg_parts.kind);
+        n = snprintf(send, 1024, "SET stats:%s:kind %i\r\n%s\r\n",
+                                 msg_parts.bucket,
+                                 msg_parts.kind_len, msg_parts.kind);
+        n = write(red, send, n);
+        if (n == -1) {
+          printf("Error writing to redis. Skipping...\n");
+          red = -1;
+          continue;
+        }
       }
-      key[6 + msg_parts.bucket_len] = '\0';
-      snprintf(msg, 1024, "%.0f:%f", msg_parts.timestamp, msg_parts.value);
-      credis_zadd(red, key, msg_parts.timestamp, msg);
     }
 
   }
