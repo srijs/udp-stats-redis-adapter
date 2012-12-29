@@ -4,7 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+#include <sys/time.h>
+#include <math.h>
 
 #include "credis.h"
 #include "js0n.h"
@@ -32,6 +33,12 @@ static inline int init_udp_socket(long addr, short port) {
 }
 
 static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
+  parts->bucket     = NULL;
+  parts->bucket_len = 0;
+  parts->kind       = NULL;
+  parts->kind_len   = 0;
+  parts->timestamp  = NAN;
+  parts->value      = NAN;
   unsigned short j[16] = {0};
   int i;
   if (js0n((void *)msg, n, j) == 0) {
@@ -40,8 +47,8 @@ static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
       switch(msg[j[i]]) {
         case 'b': parts->bucket_len = j[i + 3]; parts->bucket = &msg[j[i + 2]]; break;
         case 'k': parts->kind_len   = j[i + 3]; parts->kind   = &msg[j[i + 2]]; break;
-        case 't': parts->timestamp = strtod(&msg[j[i + 2]], NULL); break;
-        case 'v': parts->value     = strtod(&msg[j[i + 2]], NULL); break;
+        case 't': parts->timestamp  = strtod(&msg[j[i + 2]], NULL); break;
+        case 'v': parts->value      = strtod(&msg[j[i + 2]], NULL); break;
       }
     }
     return 0;
@@ -59,15 +66,15 @@ int main (void) {
   printf("Now listening on UDP port %i...\n", 6667);
 
   // Declate Redis connection.
-  REDIS red;
+  REDIS red = NULL;
 
   // Declare msg buffer and parts.
   char msg[1024];
-  struct msg_parts msg_parts = {0, 0, 0, 0};
+  struct msg_parts msg_parts;
 
   // Declare small helper values.
-  int    n;
-  time_t tm;
+  int            n, t;
+  struct timeval tv;
 
   // Run forever:
   while (1) {
@@ -77,7 +84,7 @@ int main (void) {
     // timestamp.
     n      = recvfrom(sock, msg, 1023, 0, NULL, NULL);
     msg[n] = '\0';
-    tm     = time(NULL);
+    t      = gettimeofday(&tv, NULL);
 
     // Check for redis connection and try to establish, if
     // not existent yet.
@@ -104,7 +111,17 @@ int main (void) {
     // If bucket is given, insert value into bucket.
     if (msg_parts.bucket) {
       char key[6 + msg_parts.bucket_len + 6];
-      msg_parts.timestamp = msg_parts.timestamp < 1 ? (double)tm : msg_parts.timestamp;
+      // If the received timestamp is wrong, and there
+      // was an error calling gettimeofday(), we exit.
+      // Otherwise we use the time returned by gettimeofday.
+      if (isnan(msg_parts.timestamp)) {
+        if (t == -1) {
+          printf("Error retrieving timestamp. Skipping...\n");
+          continue;
+        }
+        msg_parts.timestamp = (double)tv.tv_sec * 1000 + (double)tv.tv_usec;;
+      }
+      // Build the key string.
       memcpy  (&key[0], "stats:", 6);
       memmove (&key[6], msg_parts.bucket, msg_parts.bucket_len);
       // If kind is given, change kind of bucket.
@@ -114,6 +131,7 @@ int main (void) {
       }
       key[6 + msg_parts.bucket_len] = '\0';
       snprintf(msg, 1024, "%.0f:%f", msg_parts.timestamp, msg_parts.value);
+      printf("%s\n", msg);
       credis_zadd(red, key, msg_parts.timestamp, msg);
     }
 
