@@ -33,12 +33,6 @@ static inline int init_udp_socket(long addr, short port) {
 }
 
 static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
-  parts->bucket     = NULL;
-  parts->bucket_len = 0;
-  parts->kind       = NULL;
-  parts->kind_len   = 0;
-  parts->timestamp  = NAN;
-  parts->value      = NAN;
   unsigned short j[16] = {0};
   int i;
   if (js0n((void *)msg, n, j) == 0) {
@@ -103,6 +97,7 @@ int main (void) {
     }
 
     // Check and parse JSON message into parts.
+    msg_parts = (struct msg_parts){NULL, 0, NULL, 0, NAN, NAN};
     if (parse_msg_parts(&msg_parts, msg, n) < 0) {
       printf("Malformed message. Skipping...\n");
       continue;
@@ -131,7 +126,6 @@ int main (void) {
       }
       key[6 + msg_parts.bucket_len] = '\0';
       snprintf(msg, 1024, "%.0f:%f", msg_parts.timestamp, msg_parts.value);
-      printf("%s\n", msg);
       credis_zadd(red, key, msg_parts.timestamp, msg);
     }
 
