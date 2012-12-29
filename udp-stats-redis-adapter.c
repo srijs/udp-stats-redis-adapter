@@ -3,17 +3,17 @@
 #include <memory.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "credis.h"
-#include "parson.h"
+#include "js0n.h"
 
 struct msg_parts {
-  JSON_Value *_json;
-  const char *bucket;
-  const char *type;
-  double      timestamp;
-  double      value;
+  char  *bucket;
+  char  *kind;
+  double timestamp;
+  double value;
 };
 
 static inline int init_udp_socket(long addr, short port) {
@@ -29,22 +29,27 @@ static inline int init_udp_socket(long addr, short port) {
   return -1;
 }
 
-static inline int parse_msg_parts(struct msg_parts *parts, const char *msg) {
-  JSON_Value *json = json_parse_string(msg);
-  if (json_value_get_type(json) == JSONObject) {
-    JSON_Object *jobj = json_value_get_object(json);
-    parts->bucket     = json_object_get_string(jobj, "bucket");
-    parts->type       = json_object_get_string(jobj, "type");
-    parts->timestamp  = json_object_get_number(jobj, "timestamp");
-    parts->value      = json_object_get_number(jobj, "value");
-    parts->_json      = json;
+static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
+  unsigned short j[16] = {0};
+  int i;
+  if (js0n((void *)msg, n, j) == 0) {
+    for (i = 0; i < 16; i += 4) {
+      msg[j[i + 2] + j[i + 3]] = '\0';
+      switch(msg[j[i]]) {
+        case 'b': parts->bucket    = strdup(&msg[j[i + 2]]); break;
+        case 'k': parts->kind      = strdup(&msg[j[i + 2]]); break;
+        case 't': parts->timestamp = strtod(&msg[j[i + 2]], NULL); break;
+        case 'v': parts->value     = strtod(&msg[j[i + 2]], NULL); break;
+      }
+    }
     return 0;
   }
   return -1;
 }
 
 static inline void free_msg_parts (struct msg_parts *parts) {
-  json_value_free(parts->_json);
+  free(parts->bucket);
+  free(parts->kind);
 }
 
 int main (void) {
@@ -61,7 +66,7 @@ int main (void) {
 
   // Declare msg buffer and parts.
   char msg[1024];
-  struct msg_parts msg_parts;
+  struct msg_parts msg_parts = {0, 0, 0, 0};
 
   // Declare small helper values.
   int    n, m;
@@ -94,7 +99,7 @@ int main (void) {
     }
 
     // Check and parse JSON message into parts.
-    if (parse_msg_parts(&msg_parts, msg) < 0) {
+    if (parse_msg_parts(&msg_parts, msg, n) < 0) {
       printf("Malformed message. Skipping...\n");
       free_msg_parts(&msg_parts);
       continue;
@@ -109,9 +114,9 @@ int main (void) {
     }
 
     // If type is given, change type of bucket.
-    if (msg_parts.bucket && msg_parts.type) {
-      n = snprintf(msg, 1024, "stats:%s:type", msg_parts.bucket);
-      credis_set(red, msg, msg_parts.type);
+    if (msg_parts.bucket && msg_parts.kind) {
+      n = snprintf(msg, 1024, "stats:%s:kind", msg_parts.bucket);
+      credis_set(red, msg, msg_parts.kind);
     }
 
     free_msg_parts(&msg_parts);
