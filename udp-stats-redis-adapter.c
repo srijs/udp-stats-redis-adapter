@@ -23,33 +23,16 @@ struct msg_parts {
         value_len;
 };
 
-static inline int init_udp_socket(long addr, short port) {
-  int fd = socket(AF_INET, SOCK_DGRAM, 0);
-  struct sockaddr_in server;
-  memset(&server, 0, sizeof(server));
-  server.sin_family      = AF_INET;
-  server.sin_addr.s_addr = htonl(addr);
-  server.sin_port        = htons(port);
-  if (bind(fd, (struct sockaddr *)&server, sizeof(server)) == 0) {
-    return fd;
-  }
-  return -1;
+static inline struct sockaddr_in sock_hint (long addr, short port) {
+  struct sockaddr_in hints;
+  memset(&hints, 0, sizeof(hints));
+  hints.sin_family      = AF_INET;
+  hints.sin_addr.s_addr = htonl(addr);
+  hints.sin_port        = htons(port);
+  return hints;
 }
 
-static inline int init_redis_socket(long addr, short port) {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  struct sockaddr_in client;
-  memset(&client, 0, sizeof(client));
-  client.sin_family      = AF_INET;
-  client.sin_addr.s_addr = htonl(addr);
-  client.sin_port        = htons(port);
-  if (connect(fd, (struct sockaddr *)&client, sizeof(client)) == 0) {
-    return fd;
-  }
-  return -1;
-}
-
-static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
+static inline int parse_msg_parts (struct msg_parts *parts, char *msg, int n) {
   unsigned short j[16] = {0};
   int i;
   if (js0n((void *)msg, n, j) == 0) {
@@ -72,8 +55,9 @@ int main (void) {
   signal(SIGPIPE, SIG_IGN);
 
   // Initiate UDP server socket.
-  int sock = init_udp_socket(INADDR_ANY, 6667);
-  if (sock == -1) {
+  int sock = socket(AF_INET, SOCK_DGRAM, 0);
+  struct sockaddr_in server = sock_hint(INADDR_ANY, 6667);
+  if (bind(sock, (struct sockaddr *)&server, sizeof(server)) == -1) {
     printf("Error binding socket.\n");
     return 1;
   }
@@ -104,10 +88,10 @@ int main (void) {
     // Check for redis connection and try to establish, if
     // not existent yet.
     if (red == -1) {
-      red = init_redis_socket(inet_addr("1.0.0.127"), 6379);
-      if (red == -1) {
-        printf("Error connecting to redis.\n");
-        return 1;
+      red = socket(AF_INET, SOCK_STREAM, 0);
+      struct sockaddr_in client = sock_hint(inet_addr("1.0.0.127"), 6379);
+      if (connect(red, (struct sockaddr *)&client, sizeof(client)) == -1) {
+        return -1;
       }
     }
 
