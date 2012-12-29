@@ -38,8 +38,8 @@ static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
     for (i = 0; i < 16; i += 4) {
       msg[j[i + 2] + j[i + 3]] = '\0';
       switch(msg[j[i]]) {
-        case 'b': parts->bucket_len = j[i + 3]; parts->bucket = &msg[j[i + 2]];         break;
-        case 'k': parts->kind_len   = j[i + 3]; parts->kind   = strdup(&msg[j[i + 2]]); break;
+        case 'b': parts->bucket_len = j[i + 3]; parts->bucket = &msg[j[i + 2]]; break;
+        case 'k': parts->kind_len   = j[i + 3]; parts->kind   = &msg[j[i + 2]]; break;
         case 't': parts->timestamp = strtod(&msg[j[i + 2]], NULL); break;
         case 'v': parts->value     = strtod(&msg[j[i + 2]], NULL); break;
       }
@@ -47,10 +47,6 @@ static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
     return 0;
   }
   return -1;
-}
-
-static inline void free_msg_parts (struct msg_parts *parts) {
-  free(parts->kind);
 }
 
 int main (void) {
@@ -102,7 +98,6 @@ int main (void) {
     // Check and parse JSON message into parts.
     if (parse_msg_parts(&msg_parts, msg, n) < 0) {
       printf("Malformed message. Skipping...\n");
-      free_msg_parts(&msg_parts);
       continue;
     }
 
@@ -111,18 +106,16 @@ int main (void) {
       char key[6 + msg_parts.bucket_len + 6];
       msg_parts.timestamp = msg_parts.timestamp < 1 ? (double)tm : msg_parts.timestamp;
       memcpy  (&key[0], "stats:", 6);
-      memmove (&key[6], msg_parts.bucket, msg_parts.bucket_len + 1);
-      snprintf(msg, 1024, "%.0f:%f", msg_parts.timestamp, msg_parts.value);
-      credis_zadd(red, key, msg_parts.timestamp, msg);
+      memmove (&key[6], msg_parts.bucket, msg_parts.bucket_len);
       // If kind is given, change kind of bucket.
       if (msg_parts.kind) {
         memcpy(&key[6 + msg_parts.bucket_len], ":kind", 6);
         credis_set(red, key, msg_parts.kind);
       }
-
+      key[6 + msg_parts.bucket_len] = '\0';
+      snprintf(msg, 1024, "%.0f:%f", msg_parts.timestamp, msg_parts.value);
+      credis_zadd(red, key, msg_parts.timestamp, msg);
     }
-
-    free_msg_parts(&msg_parts);
 
   }
 
