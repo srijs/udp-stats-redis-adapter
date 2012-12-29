@@ -87,7 +87,7 @@ int main (void) {
     if (msg_bucket) {
       msg_timestamp = msg_timestamp < 1 ? (double)tm : msg_timestamp;
       n = snprintf(&msg[0],   512, "stats:%s", msg_bucket);
-      m = snprintf(&msg[512], 512, "%f:%f",    msg_timestamp, msg_value);
+      m = snprintf(&msg[512], 512, "%.0f:%f",  msg_timestamp, msg_value);
       credis_zadd(red, &msg[0], msg_timestamp, &msg[512]);
     }
 
