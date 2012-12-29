@@ -7,7 +7,7 @@ function test() {
   var obj = {
   	bucket: 'test',
   	value: Math.floor(Math.random() * 101),
-  	type: 'typie'
+  	kind: 'typie'
   };
   m = new Buffer(JSON.stringify(obj));
   c.send(m, 0, m.length, 6667, 'localhost', function (err, bytes) {
@@ -15,4 +15,4 @@ function test() {
   });
 }
 
-setInterval(test, 10);
+setInterval(test, 1);
