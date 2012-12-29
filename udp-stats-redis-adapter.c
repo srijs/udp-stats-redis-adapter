@@ -11,7 +11,9 @@
 
 struct msg_parts {
   char  *bucket;
+  short  bucket_len;
   char  *kind;
+  short  kind_len;
   double timestamp;
   double value;
 };
@@ -36,8 +38,8 @@ static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
     for (i = 0; i < 16; i += 4) {
       msg[j[i + 2] + j[i + 3]] = '\0';
       switch(msg[j[i]]) {
-        case 'b': parts->bucket    = strdup(&msg[j[i + 2]]); break;
-        case 'k': parts->kind      = strdup(&msg[j[i + 2]]); break;
+        case 'b': parts->bucket_len = j[i + 3]; parts->bucket = &msg[j[i + 2]];         break;
+        case 'k': parts->kind_len   = j[i + 3]; parts->kind   = strdup(&msg[j[i + 2]]); break;
         case 't': parts->timestamp = strtod(&msg[j[i + 2]], NULL); break;
         case 'v': parts->value     = strtod(&msg[j[i + 2]], NULL); break;
       }
@@ -48,7 +50,6 @@ static inline int parse_msg_parts(struct msg_parts *parts, char *msg, int n) {
 }
 
 static inline void free_msg_parts (struct msg_parts *parts) {
-  free(parts->bucket);
   free(parts->kind);
 }
 
@@ -69,7 +70,7 @@ int main (void) {
   struct msg_parts msg_parts = {0, 0, 0, 0};
 
   // Declare small helper values.
-  int    n, m;
+  int    n;
   time_t tm;
 
   // Run forever:
@@ -107,16 +108,18 @@ int main (void) {
 
     // If bucket is given, insert value into bucket.
     if (msg_parts.bucket) {
+      char key[6 + msg_parts.bucket_len + 6];
       msg_parts.timestamp = msg_parts.timestamp < 1 ? (double)tm : msg_parts.timestamp;
-      n = snprintf(&msg[0],   512, "stats:%s", msg_parts.bucket);
-      m = snprintf(&msg[512], 512, "%.0f:%f",  msg_parts.timestamp, msg_parts.value);
-      credis_zadd(red, &msg[0], msg_parts.timestamp, &msg[512]);
-    }
+      memcpy  (&key[0], "stats:", 6);
+      memmove (&key[6], msg_parts.bucket, msg_parts.bucket_len + 1);
+      snprintf(msg, 1024, "%.0f:%f", msg_parts.timestamp, msg_parts.value);
+      credis_zadd(red, key, msg_parts.timestamp, msg);
+      // If kind is given, change kind of bucket.
+      if (msg_parts.kind) {
+        memcpy(&key[6 + msg_parts.bucket_len], ":kind", 6);
+        credis_set(red, key, msg_parts.kind);
+      }
 
-    // If type is given, change type of bucket.
-    if (msg_parts.bucket && msg_parts.kind) {
-      n = snprintf(msg, 1024, "stats:%s:kind", msg_parts.bucket);
-      credis_set(red, msg, msg_parts.kind);
     }
 
     free_msg_parts(&msg_parts);
