@@ -1,13 +1,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <memory.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <sys/time.h>
-#include <math.h>
 #include <unistd.h>
 
 #include "js0n.h"
@@ -116,25 +113,20 @@ int main (void) {
       }
 
       // Build and send redis query.
-      n = snprintf(send, 1024, "ZADD stats:%s %s %i\r\n%s:%s\r\n",
-                               msg_parts.bucket, msg_parts.timestamp,
-                               msg_parts.timestamp_len + 1 + msg_parts.value_len,
-                               msg_parts.timestamp, msg_parts.value);
-      n = write(red, send, n);
-      if (n == -1) {
+      if (write(red, send, snprintf(send, 1024, "ZADD stats:%s %s %i\r\n%s:%s\r\n",
+                                    msg_parts.bucket, msg_parts.timestamp,
+                                    msg_parts.timestamp_len + 1 + msg_parts.value_len,
+                                    msg_parts.timestamp, msg_parts.value)) == -1) {
         goto err_redis_write;
       }
 
-      // If kind is given, change kind of bucket.
+      // If kind is given, also change kind of bucket.
       if (msg_parts.kind) {
-        n = snprintf(send, 1024, "SET stats:%s:kind %i\r\n%s\r\n",
-                                 msg_parts.bucket,
-                                 msg_parts.kind_len, msg_parts.kind);
-        n = write(red, send, n);
-        if (n == -1) {
+        if (write(red, send, snprintf(send, 1024, "SET stats:%s:kind %i\r\n%s\r\n",
+                                      msg_parts.bucket,
+                                      msg_parts.kind_len, msg_parts.kind)) == -1) {
           goto err_redis_write;
         }
-
       }
 
     }
