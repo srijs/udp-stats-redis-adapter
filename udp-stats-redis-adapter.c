@@ -10,7 +10,6 @@
 #include <math.h>
 #include <unistd.h>
 
-#include "credis.h"
 #include "js0n.h"
 
 struct msg_parts {
