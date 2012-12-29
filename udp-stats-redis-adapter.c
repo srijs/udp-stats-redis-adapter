@@ -32,7 +32,7 @@ static inline struct sockaddr_in sock_hint (long addr, short port) {
 static inline int parse_msg (struct msg_parts *parts, char *msg, int n) {
   unsigned short j[16] = {0};
   int i;
-  if (js0n((void *)msg, n, j) == 0) {
+  if (0 == js0n((void *)msg, n, j)) {
     for (i = 0; i < 16; i += 4) {
       msg[j[i + 2] + j[i + 3]] = '\0';
       switch(msg[j[i]]) {
@@ -55,7 +55,7 @@ int main (void) {
   // Initiate UDP server socket.
   int sock = socket(AF_INET, SOCK_DGRAM, 0);
   struct sockaddr_in server = sock_hint(INADDR_ANY, 6667);
-  if (bind(sock, (struct sockaddr *)&server, sizeof(server)) == -1) {
+  if (-1 == bind(sock, (struct sockaddr *)&server, sizeof(server))) {
     goto err_bind;
   }
 
@@ -84,17 +84,17 @@ int main (void) {
 
     // Check for redis connection and try to establish, if
     // not existent yet.
-    if (red == -1) {
+    if (-1 == red) {
       red = socket(AF_INET, SOCK_STREAM, 0);
       struct sockaddr_in client = sock_hint(inet_addr("1.0.0.127"), 6379);
-      if (connect(red, (struct sockaddr *)&client, sizeof(client)) == -1) {
+      if (-1 == connect(red, (struct sockaddr *)&client, sizeof(client))) {
         goto err_redis_connection;
       }
     }
 
     // Check and parse JSON message into parts.
     msg_parts = (struct msg_parts){NULL, NULL, NULL, NULL, 0, 0, 0, 0};
-    if (parse_msg(&msg_parts, msg, n) < 0) {
+    if (-1 == parse_msg(&msg_parts, msg, n)) {
       goto err_json;
     }
 
@@ -105,7 +105,7 @@ int main (void) {
       // was an error calling gettimeofday(), we exit.
       // Otherwise we use the time returned by gettimeofday.
       if (msg_parts.timestamp == NULL) {
-        if (t == -1) {
+        if (-1 == t) {
           goto err_timestamp;
         }
         msg_parts.timestamp = &msg[n + 1];
@@ -113,18 +113,18 @@ int main (void) {
       }
 
       // Build and send redis query.
-      if (write(red, send, snprintf(send, 1024, "ZADD stats:%s %s %i\r\n%s:%s\r\n",
-                                    msg_parts.bucket, msg_parts.timestamp,
-                                    msg_parts.timestamp_len + 1 + msg_parts.value_len,
-                                    msg_parts.timestamp, msg_parts.value)) == -1) {
+      if (-1 == write(red, send, snprintf(send, 1024, "ZADD stats:%s %s %i\r\n%s:%s\r\n",
+                                          msg_parts.bucket, msg_parts.timestamp,
+                                          msg_parts.timestamp_len + 1 + msg_parts.value_len,
+                                          msg_parts.timestamp, msg_parts.value))) {
         goto err_redis_write;
       }
 
       // If kind is given, also change kind of bucket.
       if (msg_parts.kind) {
-        if (write(red, send, snprintf(send, 1024, "SET stats:%s:kind %i\r\n%s\r\n",
-                                      msg_parts.bucket,
-                                      msg_parts.kind_len, msg_parts.kind)) == -1) {
+        if (-1 == write(red, send, snprintf(send, 1024, "SET stats:%s:kind %i\r\n%s\r\n",
+                                            msg_parts.bucket, msg_parts.kind_len,
+                                            msg_parts.kind))) {
           goto err_redis_write;
         }
       }
